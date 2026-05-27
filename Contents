@@ -1,0 +1,172 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
+local SoundService = game:GetService("SoundService")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+
+----------------------------------------------------
+-- STATE
+----------------------------------------------------
+local speedOn = false
+local currentWalkSpeed = 16
+local currentAnimSpeed = 1
+
+----------------------------------------------------
+-- FX
+----------------------------------------------------
+local colorCorrection = Instance.new("ColorCorrectionEffect")
+colorCorrection.Enabled = false
+colorCorrection.TintColor = Color3.fromRGB(180,255,255)
+colorCorrection.Brightness = 0.1
+colorCorrection.Contrast = 0.2
+colorCorrection.Saturation = 0.1
+colorCorrection.Parent = Lighting
+
+----------------------------------------------------
+-- SOUND
+----------------------------------------------------
+local soundLoop = Instance.new("Sound")
+soundLoop.Parent = SoundService
+soundLoop.SoundId = "rbxassetid://85605109880286"
+soundLoop.Volume = 10
+soundLoop.Looped = true
+soundLoop.PlaybackSpeed = 0.1
+
+local soundActivate = Instance.new("Sound")
+soundActivate.Parent = SoundService
+soundActivate.SoundId = "rbxassetid://139909368044571"
+soundActivate.Volume = 5
+soundActivate.Looped = false
+
+----------------------------------------------------
+-- SMOOTH FOV
+----------------------------------------------------
+local function setFOV(target)
+	local camera = workspace.CurrentCamera
+	if not camera then return end
+
+	local tween = TweenService:Create(
+		camera,
+		TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{FieldOfView = target}
+	)
+
+	tween:Play()
+end
+
+----------------------------------------------------
+-- AUDIO CONTROL
+----------------------------------------------------
+local function startSlowAudio()
+	soundLoop:Stop()
+	soundLoop.TimePosition = 0
+
+	-- force re-evaluation of audio stream
+	task.wait()
+
+	soundLoop.PlaybackSpeed = 0.2
+	soundLoop.Volume = 10
+
+	soundLoop:Play()
+end
+----------------------------------------------------
+-- UI
+----------------------------------------------------
+local gui = Instance.new("ScreenGui")
+gui.Name = "SpeedsterUI"
+gui.ResetOnSpawn = false
+gui.Parent = player:WaitForChild("PlayerGui")
+
+local speedButton = Instance.new("TextButton")
+speedButton.Size = UDim2.new(0,120,0,40)
+speedButton.Position = UDim2.new(0, 10, 1, -150)
+speedButton.Text = "SPEED"
+speedButton.Parent = gui
+
+local animBox = Instance.new("TextBox")
+animBox.Size = UDim2.new(0,120,0,25)
+animBox.Position = UDim2.new(0, 10, 1, -100)
+animBox.Text = "1"
+animBox.Parent = gui
+
+local walkBox = Instance.new("TextBox")
+walkBox.Size = UDim2.new(0,120,0,25)
+walkBox.Position = UDim2.new(0, 10, 1, -70)
+walkBox.Text = "16"
+walkBox.Parent = gui
+
+----------------------------------------------------
+-- INPUTS
+----------------------------------------------------
+animBox.FocusLost:Connect(function()
+	local n = tonumber(animBox.Text)
+	if n then currentAnimSpeed = n end
+end)
+
+walkBox.FocusLost:Connect(function()
+	local n = tonumber(walkBox.Text)
+	if n then currentWalkSpeed = n end
+end)
+
+----------------------------------------------------
+-- ANIMATION + WALK LOOP
+----------------------------------------------------
+RunService.RenderStepped:Connect(function()
+	local char = player.Character
+	if not char then return end
+
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	if not hum then return end
+
+	hum.WalkSpeed = currentWalkSpeed
+
+	local animator = hum:FindFirstChild("Animator")
+	if animator then
+		for _, track in pairs(animator:GetPlayingAnimationTracks()) do
+			pcall(function()
+				track:AdjustSpeed(currentAnimSpeed)
+			end)
+		end
+	end
+end)
+
+----------------------------------------------------
+-- TOGGLE SPEED
+----------------------------------------------------
+local function toggleSpeed()
+	local char = player.Character
+	if not char then return end
+
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	if not hum then return end
+
+	speedOn = not speedOn
+
+	if speedOn then
+		hum.WalkSpeed = 100
+
+		colorCorrection.Enabled = true
+		setFOV(100)
+
+		soundActivate:Play()
+		startSlowAudio()
+	else
+		hum.WalkSpeed = 16
+
+		colorCorrection.Enabled = false
+		setFOV(70)
+
+		soundLoop:Stop()
+	end
+end
+
+speedButton.MouseButton1Click:Connect(toggleSpeed)
+
+----------------------------------------------------
+-- RESPAWN SAFE RESET
+----------------------------------------------------
+player.CharacterAdded:Connect(function()
+	task.wait(0.5)
+end)
