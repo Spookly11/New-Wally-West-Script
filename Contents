@@ -3,6 +3,7 @@ local RunService = game:GetService("RunService")
 local Lighting = game:GetService("Lighting")
 local SoundService = game:GetService("SoundService")
 local TweenService = game:GetService("TweenService")
+local UIS = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
 
@@ -12,6 +13,8 @@ local player = Players.LocalPlayer
 local speedOn = false
 local currentWalkSpeed = 16
 local currentAnimSpeed = 1
+
+local SLIDER_MAX = 1250
 
 ----------------------------------------------------
 -- FX
@@ -27,13 +30,6 @@ colorCorrection.Parent = Lighting
 ----------------------------------------------------
 -- SOUND
 ----------------------------------------------------
-local soundLoop = Instance.new("Sound")
-soundLoop.Parent = SoundService
-soundLoop.SoundId = "rbxassetid://85605109880286"
-soundLoop.Volume = 10
-soundLoop.Looped = true
-soundLoop.PlaybackSpeed = 0.1
-
 local soundActivate = Instance.new("Sound")
 soundActivate.Parent = SoundService
 soundActivate.SoundId = "rbxassetid://139909368044571"
@@ -41,7 +37,55 @@ soundActivate.Volume = 5
 soundActivate.Looped = false
 
 ----------------------------------------------------
--- SMOOTH FOV
+-- AURA SYSTEM
+----------------------------------------------------
+local auraEmitters = {}
+
+local function createAuraEmitter(part)
+	local att = Instance.new("Attachment")
+	att.Parent = part
+
+	local p = Instance.new("ParticleEmitter")
+	p.Parent = att
+	p.Texture = "rbxassetid://3442350629"
+	p.Rate = 20
+	p.Lifetime = NumberRange.new(0.2, 0.4)
+	p.Speed = NumberRange.new(3, 6)
+	p.VelocitySpread = 360
+	p.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1.2),
+		NumberSequenceKeypoint.new(1, 0.4)
+	})
+	p.LightEmission = 1
+	p.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.15),
+		NumberSequenceKeypoint.new(1, 1)
+	})
+	p.Color = ColorSequence.new(Color3.fromRGB(0,255,255))
+	p.ZOffset = 1
+
+	table.insert(auraEmitters, att)
+end
+
+local function createElectricAura(char)
+	for _, part in ipairs(char:GetChildren()) do
+		if part:IsA("BasePart") then
+			createAuraEmitter(part)
+		end
+	end
+end
+
+local function destroyElectricAura()
+	for _, emitter in ipairs(auraEmitters) do
+		if emitter and emitter.Parent then
+			emitter:Destroy()
+		end
+	end
+	table.clear(auraEmitters)
+end
+
+----------------------------------------------------
+-- FOV
 ----------------------------------------------------
 local function setFOV(target)
 	local camera = workspace.CurrentCamera
@@ -57,21 +101,6 @@ local function setFOV(target)
 end
 
 ----------------------------------------------------
--- AUDIO CONTROL
-----------------------------------------------------
-local function startSlowAudio()
-	soundLoop:Stop()
-	soundLoop.TimePosition = 0
-
-	-- force re-evaluation of audio stream
-	task.wait()
-
-	soundLoop.PlaybackSpeed = 0.2
-	soundLoop.Volume = 10
-
-	soundLoop:Play()
-end
-----------------------------------------------------
 -- UI
 ----------------------------------------------------
 local gui = Instance.new("ScreenGui")
@@ -79,39 +108,172 @@ gui.Name = "SpeedsterUI"
 gui.ResetOnSpawn = false
 gui.Parent = player:WaitForChild("PlayerGui")
 
+----------------------------------------------------
+-- SPEED BUTTON (MASTER TOGGLE)
+----------------------------------------------------
 local speedButton = Instance.new("TextButton")
 speedButton.Size = UDim2.new(0,120,0,40)
-speedButton.Position = UDim2.new(0, 10, 1, -150)
-speedButton.Text = "SPEED"
+speedButton.Position = UDim2.new(0, 10, 1, -165) -- moved up
+speedButton.Text = "⚡ SPEED OFF"
+speedButton.Font = Enum.Font.GothamBold
+speedButton.TextColor3 = Color3.fromRGB(255,255,255)
+speedButton.BackgroundColor3 = Color3.fromRGB(120,30,30)
+speedButton.AutoButtonColor = false
 speedButton.Parent = gui
 
+Instance.new("UICorner", speedButton)
+
+----------------------------------------------------
+-- CLICK EFFECT
+----------------------------------------------------
+local function playClickEffect()
+	local flash = TweenService:Create(speedButton, TweenInfo.new(0.1), {
+		BackgroundColor3 = Color3.fromRGB(255,255,255)
+	})
+
+	local reset = TweenService:Create(speedButton, TweenInfo.new(0.2), {
+		BackgroundColor3 = speedOn and Color3.fromRGB(0,120,160) or Color3.fromRGB(120,30,30)
+	})
+
+	local grow = TweenService:Create(speedButton, TweenInfo.new(0.1), {
+		Size = UDim2.new(0,130,0,45)
+	})
+
+	local shrink = TweenService:Create(speedButton, TweenInfo.new(0.15), {
+		Size = UDim2.new(0,120,0,40)
+	})
+
+	flash:Play()
+	grow:Play()
+
+	grow.Completed:Connect(function()
+		shrink:Play()
+		reset:Play()
+	end)
+end
+
+----------------------------------------------------
+-- SPEED SLIDER (SMOOTH)
+----------------------------------------------------
+local sliderFrame = Instance.new("Frame")
+sliderFrame.Size = UDim2.new(0, 200, 0, 50)
+sliderFrame.Position = UDim2.new(0, 10, 1, -100)
+sliderFrame.BackgroundColor3 = Color3.fromRGB(25,25,25)
+sliderFrame.Parent = gui
+Instance.new("UICorner", sliderFrame)
+
+local bar = Instance.new("Frame")
+bar.Size = UDim2.new(1, -20, 0, 4)
+bar.Position = UDim2.new(0, 10, 0.5, -2)
+bar.BackgroundColor3 = Color3.fromRGB(0,150,200)
+bar.Parent = sliderFrame
+Instance.new("UICorner", bar)
+
+local knob = Instance.new("Frame")
+knob.Size = UDim2.new(0, 12, 0, 12)
+knob.BackgroundColor3 = Color3.fromRGB(0,255,255)
+knob.AnchorPoint = Vector2.new(0.5, 0.5)
+knob.Position = UDim2.new(0, 0, 0.5, -2)
+knob.Parent = sliderFrame
+Instance.new("UICorner", knob)
+
+local label = Instance.new("TextLabel")
+label.Size = UDim2.new(1, 0, 0, 20)
+label.Position = UDim2.new(0, 0, 0, -18)
+label.BackgroundTransparency = 1
+label.TextColor3 = Color3.fromRGB(0,255,255)
+label.Font = Enum.Font.GothamBold
+label.TextSize = 12
+label.Text = "Speed: 16"
+label.Parent = sliderFrame
+
+----------------------------------------------------
+-- SLIDER LOGIC
+----------------------------------------------------
+local dragging = false
+
+local function updateSlider(x)
+	if not speedOn then return end
+
+	local absX = sliderFrame.AbsolutePosition.X
+	local sizeX = sliderFrame.AbsoluteSize.X
+
+	local alpha = math.clamp((x - absX) / sizeX, 0, 1)
+	local value = math.floor(alpha * SLIDER_MAX)
+
+	currentWalkSpeed = value
+	label.Text = "Speed: " .. value
+
+	knob.Position = UDim2.new(alpha, 0, 0.5, -2)
+end
+
+sliderFrame.InputBegan:Connect(function(input)
+	if not speedOn then return end
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+	or input.UserInputType == Enum.UserInputType.Touch then
+		dragging = true
+		updateSlider(input.Position.X)
+	end
+end)
+
+UIS.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+	or input.UserInputType == Enum.UserInputType.Touch then
+		dragging = false
+	end
+end)
+
+UIS.InputChanged:Connect(function(input)
+	if not dragging then return end
+	if not speedOn then return end
+	if input.UserInputType == Enum.UserInputType.MouseMovement
+	or input.UserInputType == Enum.UserInputType.Touch then
+		updateSlider(input.Position.X)
+	end
+end)
+----------------------------------------------------
+-- ANIMATION SPEED BOX (NEW)
+----------------------------------------------------
+
 local animBox = Instance.new("TextBox")
-animBox.Size = UDim2.new(0,120,0,25)
-animBox.Position = UDim2.new(0, 10, 1, -100)
+animBox.Size = UDim2.new(0, 200, 0, 28)
+animBox.Position = UDim2.new(0, 10, 1, -60)
+animBox.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
+animBox.TextColor3 = Color3.fromRGB(0, 255, 255)
+animBox.PlaceholderText = "Anim Speed (e.g. 1, 1.5, 2)"
+animBox.PlaceholderColor3 = Color3.fromRGB(120, 255, 255)
+animBox.Font = Enum.Font.GothamBold
+animBox.TextSize = 14
 animBox.Text = "1"
+animBox.ClearTextOnFocus = false
 animBox.Parent = gui
 
-local walkBox = Instance.new("TextBox")
-walkBox.Size = UDim2.new(0,120,0,25)
-walkBox.Position = UDim2.new(0, 10, 1, -70)
-walkBox.Text = "16"
-walkBox.Parent = gui
+Instance.new("UICorner", animBox)
+
+local animStroke = Instance.new("UIStroke")
+animStroke.Parent = animBox
+animStroke.Color = Color3.fromRGB(0, 255, 255)
+animStroke.Thickness = 1.5
+animStroke.Transparency = 0.4
 
 ----------------------------------------------------
--- INPUTS
+-- ANIMATION SPEED LOGIC
 ----------------------------------------------------
+
 animBox.FocusLost:Connect(function()
-	local n = tonumber(animBox.Text)
-	if n then currentAnimSpeed = n end
-end)
+	local value = tonumber(animBox.Text)
 
-walkBox.FocusLost:Connect(function()
-	local n = tonumber(walkBox.Text)
-	if n then currentWalkSpeed = n end
+	if value and value > 0 then
+		currentAnimSpeed = value
+		animBox.Text = tostring(value)
+	else
+		-- reset to safe default if invalid input
+		currentAnimSpeed = 1
+		animBox.Text = "1"
+	end
 end)
-
 ----------------------------------------------------
--- ANIMATION + WALK LOOP
+-- MAIN LOOP
 ----------------------------------------------------
 RunService.RenderStepped:Connect(function()
 	local char = player.Character
@@ -120,7 +282,11 @@ RunService.RenderStepped:Connect(function()
 	local hum = char:FindFirstChildOfClass("Humanoid")
 	if not hum then return end
 
-	hum.WalkSpeed = currentWalkSpeed
+	if speedOn then
+		hum.WalkSpeed = currentWalkSpeed
+	else
+		hum.WalkSpeed = 16
+	end
 
 	local animator = hum:FindFirstChild("Animator")
 	if animator then
@@ -145,28 +311,38 @@ local function toggleSpeed()
 	speedOn = not speedOn
 
 	if speedOn then
-		hum.WalkSpeed = 100
+		speedButton.Text = "⚡ SPEED ON"
+		speedButton.BackgroundColor3 = Color3.fromRGB(0,120,160)
 
 		colorCorrection.Enabled = true
 		setFOV(100)
 
+		createElectricAura(char)
 		soundActivate:Play()
-		startSlowAudio()
 	else
-		hum.WalkSpeed = 16
+		speedButton.Text = "⚡ SPEED OFF"
+		speedButton.BackgroundColor3 = Color3.fromRGB(120,30,30)
 
 		colorCorrection.Enabled = false
 		setFOV(70)
 
-		soundLoop:Stop()
+		destroyElectricAura()
+		hum.WalkSpeed = 16
 	end
 end
 
-speedButton.MouseButton1Click:Connect(toggleSpeed)
+speedButton.MouseButton1Click:Connect(function()
+	playClickEffect()
+	toggleSpeed()
+end)
 
 ----------------------------------------------------
--- RESPAWN SAFE RESET
+-- RESPAWN HANDLER
 ----------------------------------------------------
-player.CharacterAdded:Connect(function()
+player.CharacterAdded:Connect(function(char)
 	task.wait(0.5)
+
+	if speedOn then
+		createElectricAura(char)
+	end
 end)
